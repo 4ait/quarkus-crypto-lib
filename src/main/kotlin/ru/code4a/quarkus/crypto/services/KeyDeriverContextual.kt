@@ -109,6 +109,7 @@ class KeyDeriverContextual(
     )
   }
 
+  @OptIn(ExperimentalSerializationApi::class)
   @Serializable
   class KeyDeriveContainer(
     @ProtoNumber(1)

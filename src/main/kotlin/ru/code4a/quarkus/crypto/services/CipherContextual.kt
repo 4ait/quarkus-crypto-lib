@@ -8,7 +8,6 @@ import kotlinx.serialization.protobuf.ProtoBuf
 import kotlinx.serialization.protobuf.ProtoNumber
 import ru.code4a.quarkus.crypto.ciphers.CipherChaCha20Poly1305IVMSG
 import ru.code4a.quarkus.crypto.generator.UniqueBytesGenerator
-import ru.code4a.quarkus.crypto.utils.PKCS7Padding
 
 @ApplicationScoped
 /**
@@ -25,8 +24,6 @@ class CipherContextual(
   private val uniqueBytesGenerator: UniqueBytesGenerator
 ) {
   companion object {
-    private const val BLOCK_SIZE = 32
-    private const val VERSION_BYTE: Byte = 101
     private const val CONTEXT_SOURCE =
       "ru.foura.erpii.security.crypto.CipherContextual:1:NmE5MDQ5YWZlN2Y2NmQwYWQ3ZjJhOGM5N2JhNWQzNjgwZDg0ODY1YWVmYTZmODNjOTU4NzJhMjIwYmI3NTYyMgo="
   }
@@ -52,24 +49,7 @@ class CipherContextual(
     source: String, context: String,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    val packedContext = packContext(
-      source = source,
-      contextBytes = context.toByteArray(Charsets.UTF_8)
-    )
-    val derivedKey = keyDeriverContextual.deriveKey(
-      lengthBytes = 32,
-      source = CONTEXT_SOURCE,
-      contextBytes = packedContext,
-      secret = secret
-    )
-    val paddedData = PKCS7Padding.addPadding(data, BLOCK_SIZE)
-
-    val encryptedData = chaCha20Poly1305.encryptWithIv(
-      input = paddedData,
-      key = derivedKey,
-      iv = uniqueBytesGenerator.getNext(12)
-    )
-    return addVersionPrefix(encryptedData)
+    return prepareCipher(source, context, secret).encrypt(data)
   }
 
   /**
@@ -94,21 +74,7 @@ class CipherContextual(
     context: ByteArray,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    val packedContext = packContext(source, context)
-    val derivedKey = keyDeriverContextual.deriveKey(
-      32,
-      CONTEXT_SOURCE,
-      packedContext,
-      secret = secret
-    )
-    val paddedData = PKCS7Padding.addPadding(data, BLOCK_SIZE)
-
-    val encryptedData = chaCha20Poly1305.encryptWithIv(
-      input = paddedData,
-      key = derivedKey,
-      iv = uniqueBytesGenerator.getNext(12)
-    )
-    return addVersionPrefix(encryptedData)
+    return prepareCipher(source, context, secret).encrypt(data)
   }
 
   /**
@@ -130,20 +96,7 @@ class CipherContextual(
     context: String,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    val packedContext = packContext(source, context.toByteArray(Charsets.UTF_8))
-    val derivedKey = keyDeriverContextual.deriveKey(
-      32,
-      CONTEXT_SOURCE,
-      packedContext,
-      secret = secret
-    )
-    val dataWithoutVersion = stripVersionPrefix(data)
-    val decryptedData = chaCha20Poly1305.decrypt(
-      input = dataWithoutVersion,
-      key = derivedKey
-    )
-
-    return PKCS7Padding.removePadding(decryptedData, BLOCK_SIZE)
+    return prepareCipher(source, context, secret).decrypt(data)
   }
 
   /**
@@ -165,46 +118,24 @@ class CipherContextual(
     context: ByteArray,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    val packedContext = packContext(source, context)
-    val derivedKey = keyDeriverContextual.deriveKey(
-      32,
-      CONTEXT_SOURCE,
-      packedContext,
-      secret = secret
-    )
-    val dataWithoutVersion = stripVersionPrefix(data)
-    val decryptedData = chaCha20Poly1305.decrypt(
-      input = dataWithoutVersion,
-      key = derivedKey
-    )
-
-    return PKCS7Padding.removePadding(decryptedData, BLOCK_SIZE)
+    return prepareCipher(source, context, secret).decrypt(data)
   }
 
-  /**
-   * Prepends the cipher version marker to allow future format changes.
-   *
-   * @param data raw ciphertext produced by the cipher.
-   * @return ciphertext prefixed with the current version byte.
-   */
-  private fun addVersionPrefix(data: ByteArray): ByteArray {
-    val prefixed = ByteArray(data.size + 1)
-    prefixed[0] = VERSION_BYTE
-    System.arraycopy(data, 0, prefixed, 1, data.size)
-    return prefixed
-  }
+  /** Prepares an authenticated cipher for a fixed scope without reusing nonces. */
+  fun prepareCipher(
+    source: String,
+    context: String,
+    secret: ByteArray = ByteArray(0)
+  ): PreparedCipher = prepareCipher(source, context.toByteArray(Charsets.UTF_8), secret)
 
-  /**
-   * Validates and removes the version byte from an input ciphertext.
-   *
-   * @param data ciphertext that must contain the version prefix.
-   * @return ciphertext without the version byte.
-   */
-  private fun stripVersionPrefix(data: ByteArray): ByteArray {
-    require(data.isNotEmpty()) { "Empty cipher data" }
-    val version = data[0]
-    require(version == VERSION_BYTE) { "Unsupported cipher version: $version" }
-    return data.copyOfRange(1, data.size)
+  /** The returned instance derives its key once and obtains a fresh nonce per encryption. */
+  fun prepareCipher(
+    source: String,
+    context: ByteArray,
+    secret: ByteArray = ByteArray(0)
+  ): PreparedCipher {
+    val key = keyDeriverContextual.deriveKey(32, CONTEXT_SOURCE, packContext(source, context), secret)
+    return PreparedCipher(key, chaCha20Poly1305, uniqueBytesGenerator)
   }
 
   /**
@@ -228,6 +159,7 @@ class CipherContextual(
     )
   }
 
+  @OptIn(ExperimentalSerializationApi::class)
   @Serializable
   class ContextContainer(
     @ProtoNumber(1)

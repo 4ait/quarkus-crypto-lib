@@ -21,7 +21,6 @@ class DeterministicCipherContextual(
   private val keyDeriverContextual: KeyDeriverContextual
 ) {
   companion object {
-    private const val VERSION_BYTE: Byte = 100
     private const val CONTEXT_SOURCE =
       "ru.foura.erpii.security.crypto.DeterministicCipherContextual:1:MWVmMzc5YjIxMjE1ZGIyMTUyYWE5ZmRkY2M2MDE0NDUyODQxMzA5M2Y1ODUxNmYyMWJkZDVhYjM4YWU4NTYzMQo="
     private const val KEY_CONTEXT_KEY_TYPE = "KEY"
@@ -50,30 +49,30 @@ class DeterministicCipherContextual(
     context: String,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    val key =
-      keyDeriverContextual.deriveKey(
-        64,
-        CONTEXT_SOURCE,
-        packContext(
-          source = source,
-          contextBytes = context.toByteArray(Charsets.UTF_8),
-          keyType = KEY_CONTEXT_KEY_TYPE
-        ),
-        secret = secret
-      )
+    return prepareDeterministicCipher(source, context, secret).encrypt(data)
+  }
 
-    val ad = keyDeriverContextual.deriveKey(
-      32,
-      CONTEXT_SOURCE,
-      packContext(
-        source = source,
-        contextBytes = context.toByteArray(Charsets.UTF_8),
-        keyType = AD_CONTEXT_KEY_TYPE
-      ),
-      secret = secret
+  /**
+   * Prepares the key, associated data and AES-SIV once for a fixed scope.
+   * The returned instance supports concurrent encryption and decryption. It belongs
+   * to this service's master key and must be recreated when that key changes.
+   * Existing methods retain their wire format without an unbounded context cache.
+   */
+  fun prepareDeterministicCipher(
+    source: String,
+    context: String,
+    secret: ByteArray = ByteArray(0)
+  ): PreparedDeterministicCipher {
+    val contextBytes = context.toByteArray(Charsets.UTF_8)
+    val key = keyDeriverContextual.deriveKey(
+      64, CONTEXT_SOURCE,
+      packContext(source, contextBytes, KEY_CONTEXT_KEY_TYPE), secret
     )
-    val encryptedData = AesSiv(key).encryptDeterministically(data, ad)
-    return addVersionPrefix(encryptedData)
+    val associatedData = keyDeriverContextual.deriveKey(
+      32, CONTEXT_SOURCE,
+      packContext(source, contextBytes, AD_CONTEXT_KEY_TYPE), secret
+    )
+    return PreparedDeterministicCipher(AesSiv(key), associatedData)
   }
 
   /**
@@ -95,57 +94,7 @@ class DeterministicCipherContextual(
     context: String,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    val key =
-      keyDeriverContextual.deriveKey(
-        64,
-        CONTEXT_SOURCE,
-        packContext(
-          source = source,
-          contextBytes = context.toByteArray(Charsets.UTF_8),
-          keyType = KEY_CONTEXT_KEY_TYPE
-        ),
-        secret = secret
-      )
-
-    val ad =
-      keyDeriverContextual.deriveKey(
-        32,
-        CONTEXT_SOURCE,
-        packContext(
-          source = source,
-          contextBytes = context.toByteArray(Charsets.UTF_8),
-          keyType = AD_CONTEXT_KEY_TYPE
-        ),
-        secret = secret
-      )
-    val dataWithoutVersion = stripVersionPrefix(data)
-    return AesSiv(key).decryptDeterministically(dataWithoutVersion, ad)
-  }
-
-  /**
-   * Prepends the cipher version marker to allow future format changes.
-   *
-   * @param data raw ciphertext produced by the cipher.
-   * @return ciphertext prefixed with the current version byte.
-   */
-  private fun addVersionPrefix(data: ByteArray): ByteArray {
-    val prefixed = ByteArray(data.size + 1)
-    prefixed[0] = VERSION_BYTE
-    System.arraycopy(data, 0, prefixed, 1, data.size)
-    return prefixed
-  }
-
-  /**
-   * Validates and removes the version byte from an input ciphertext.
-   *
-   * @param data ciphertext that must contain the version prefix.
-   * @return ciphertext without the version byte.
-   */
-  private fun stripVersionPrefix(data: ByteArray): ByteArray {
-    require(data.isNotEmpty()) { "Empty cipher data" }
-    val version = data[0]
-    require(version == VERSION_BYTE) { "Unsupported cipher version: $version" }
-    return data.copyOfRange(1, data.size)
+    return prepareDeterministicCipher(source, context, secret).decrypt(data)
   }
 
   /**
@@ -168,6 +117,7 @@ class DeterministicCipherContextual(
     )
   }
 
+  @OptIn(ExperimentalSerializationApi::class)
   @Serializable
   class ContextContainer(
     @ProtoNumber(1)

@@ -7,7 +7,7 @@ description =
     "authenticated encryption, deterministic encryption, format-preserving encryption, and signing."
 
 plugins {
-  val kotlinVersion = "2.3.10"
+  val kotlinVersion = "2.4.21"
 
   kotlin("jvm") version kotlinVersion
   kotlin("plugin.serialization") version kotlinVersion
@@ -98,18 +98,19 @@ tasks.withType<Test> {
 val quarkusVersion: String by project
 
 dependencies {
-  implementation(enforcedPlatform("io.quarkus.platform:quarkus-bom:${quarkusVersion}"))
+  // Consumers keep control of their Quarkus platform; do not export forced versions.
+  implementation(platform("io.quarkus.platform:quarkus-bom:${quarkusVersion}"))
 
   implementation("io.quarkus:quarkus-arc")
-  implementation("io.quarkus:quarkus-security")
   api("org.bouncycastle:bcprov-jdk18on")
 
-  implementation("com.google.crypto.tink:tink:1.20.0")
-  implementation("org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.10.0")
-  implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.10.0")
+  implementation("com.google.crypto.tink:tink:1.23.0")
+  implementation("org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.12.0")
+  implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.12.0")
 
-  testImplementation(kotlin("test"))
-  testImplementation("org.mockito:mockito-core:5.12.0")
+  testImplementation(kotlin("test-junit5"))
+  testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
+  testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.named("compileTestKotlin", org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask::class.java) {
@@ -151,10 +152,4 @@ kotlin {
   compilerOptions {
     freeCompilerArgs.add("-Xemit-jvm-type-annotations")
   }
-}
-
-tasks.withType<GenerateModuleMetadata>().configureEach {
-  // The value 'enforced-platform' is provided in the validation
-  // error message you got
-  suppressedValidationErrors.add("enforced-platform")
 }

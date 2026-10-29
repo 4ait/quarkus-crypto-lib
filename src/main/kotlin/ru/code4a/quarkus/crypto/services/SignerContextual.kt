@@ -6,9 +6,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.protobuf.ProtoBuf
 import kotlinx.serialization.protobuf.ProtoNumber
-import java.security.MessageDigest
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 @ApplicationScoped
 /**
@@ -22,8 +19,6 @@ class SignerContextual(
   private val keyDeriverContextual: KeyDeriverContextual
 ) {
   companion object {
-    private const val SIGNATURE_ALGORITHM_ID: Byte = 99
-    private const val HMAC_SHA3_256_ALGORITHM = "HmacSHA3-256"
     private const val CONTEXT_SOURCE =
       "ru.foura.erpii.security.crypto.SignatureContextual:1:NDlhYTVlMjAyMzU4ZGMzOTcxOWRjNThkMDVhNzQ1OTg2OWFjNzYyMzMyMDdkY2UwMmY3MWQwZjMwYzNkZTczNgo="
   }
@@ -49,14 +44,7 @@ class SignerContextual(
     context: String,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    val packedContext = packContext(source, context.toByteArray(Charsets.UTF_8))
-    val derivedKey = keyDeriverContextual.deriveKey(
-      32,
-      CONTEXT_SOURCE,
-      packedContext,
-      secret = secret
-    )
-    return byteArrayOf(SIGNATURE_ALGORITHM_ID) + hmacSha3256(derivedKey, data)
+    return prepareSigner(source, context, secret).sign(data)
   }
 
   /**
@@ -80,14 +68,7 @@ class SignerContextual(
     context: ByteArray,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    val packedContext = packContext(source, context)
-    val derivedKey = keyDeriverContextual.deriveKey(
-      32,
-      CONTEXT_SOURCE,
-      packedContext,
-      secret = secret
-    )
-    return byteArrayOf(SIGNATURE_ALGORITHM_ID) + hmacSha3256(derivedKey, data)
+    return prepareSigner(source, context, secret).sign(data)
   }
 
   /**
@@ -111,18 +92,8 @@ class SignerContextual(
     signature: ByteArray,
     secret: ByteArray = ByteArray(0)
   ): Boolean {
-    if (signature.isEmpty() || signature[0] != SIGNATURE_ALGORITHM_ID) {
-      return false
-    }
-    val packedContext = packContext(source, context.toByteArray(Charsets.UTF_8))
-    val derivedKey = keyDeriverContextual.deriveKey(
-      32,
-      CONTEXT_SOURCE,
-      packedContext,
-      secret = secret
-    )
-    val expected = hmacSha3256(derivedKey, data)
-    return MessageDigest.isEqual(expected, signature.copyOfRange(1, signature.size))
+    if (!PreparedSigner.supportsSignature(signature)) return false
+    return prepareSigner(source, context, secret).verify(data, signature)
   }
 
   /**
@@ -146,33 +117,17 @@ class SignerContextual(
     signature: ByteArray,
     secret: ByteArray = ByteArray(0)
   ): Boolean {
-    if (signature.isEmpty() || signature[0] != SIGNATURE_ALGORITHM_ID) {
-      return false
-    }
-    val packedContext = packContext(source, context)
-    val derivedKey = keyDeriverContextual.deriveKey(
-      32,
-      CONTEXT_SOURCE,
-      packedContext,
-      secret = secret
-    )
-    val expected = hmacSha3256(derivedKey, data)
-    return MessageDigest.isEqual(expected, signature.copyOfRange(1, signature.size))
+    if (!PreparedSigner.supportsSignature(signature)) return false
+    return prepareSigner(source, context, secret).verify(data, signature)
   }
 
-  /**
-   * Computes HMAC-SHA3-256 for the provided data.
-   *
-   * @param key raw key bytes of length 32 derived from the context.
-   * @param data bytes to authenticate.
-   * @return HMAC tag bytes.
-   */
-  private fun hmacSha3256(key: ByteArray, data: ByteArray): ByteArray {
-    val mac = Mac.getInstance(HMAC_SHA3_256_ALGORITHM)
-    val secretKey = SecretKeySpec(key, HMAC_SHA3_256_ALGORITHM)
-    mac.init(secretKey)
-    return mac.doFinal(data)
-  }
+  /** Prepares a signing scope while retaining the existing signature format. */
+  fun prepareSigner(source: String, context: String, secret: ByteArray = ByteArray(0)): PreparedSigner =
+    prepareSigner(source, context.toByteArray(Charsets.UTF_8), secret)
+
+  /** The key is derived once; each operation creates its own mutable JCA Mac instance. */
+  fun prepareSigner(source: String, context: ByteArray, secret: ByteArray = ByteArray(0)): PreparedSigner =
+    PreparedSigner(keyDeriverContextual.deriveKey(32, CONTEXT_SOURCE, packContext(source, context), secret))
 
   /**
    * Packs the context into a stable protobuf structure for HKDF info binding.
@@ -192,6 +147,7 @@ class SignerContextual(
     )
   }
 
+  @OptIn(ExperimentalSerializationApi::class)
   @Serializable
   class ContextContainer(
     @ProtoNumber(1)

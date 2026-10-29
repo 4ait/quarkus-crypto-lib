@@ -83,10 +83,8 @@ class FormatPreservingEncrypterContextual(
     radix: Int,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    validateInputs(data, radix)
-    val key = deriveKey(source = source, contextBytes = context, secret = secret)
-    val tweak = deriveTweak(source = source, contextBytes = context, secret = secret)
-    return ff1Cipher.encrypt(data, key, tweak, radix)
+    validateFormatPreservingData(data, radix)
+    return prepareFormatPreservingCipher(source, context, radix, secret).encrypt(data)
   }
 
   /**
@@ -129,43 +127,23 @@ class FormatPreservingEncrypterContextual(
     data: ByteArray, source: String, context: ByteArray, radix: Int,
     secret: ByteArray = ByteArray(0)
   ): ByteArray {
-    validateInputs(data, radix)
-    val key = deriveKey(source = source, contextBytes = context, secret = secret)
-    val tweak = deriveTweak(source = source, contextBytes = context, secret = secret)
-    return ff1Cipher.decrypt(data, key, tweak, radix)
+    validateFormatPreservingData(data, radix)
+    return prepareFormatPreservingCipher(source, context, radix, secret).decrypt(data)
   }
 
-  /**
-   * Validates data/radix compatibility for FF1 format-preserving encryption.
-   *
-   * @param data digits encoded as bytes; must follow the radix-dependent encoding rules.
-   * @param radix base of the digits; must be in [2, 65536] and consistent with [data].
-   */
-  private fun validateInputs(data: ByteArray, radix: Int) {
-    require(data.isNotEmpty()) { "Empty FPE data" }
+  /** Prepares the FF1 key and tweak for a fixed scope and radix. */
+  fun prepareFormatPreservingCipher(
+    source: String, context: String, radix: Int, secret: ByteArray = ByteArray(0)
+  ): PreparedFormatPreservingCipher =
+    prepareFormatPreservingCipher(source, context.toByteArray(Charsets.UTF_8), radix, secret)
+
+  fun prepareFormatPreservingCipher(
+    source: String, context: ByteArray, radix: Int, secret: ByteArray = ByteArray(0)
+  ): PreparedFormatPreservingCipher {
     require(radix in 2..65536) { "Radix must be in range [2, 65536]" }
-
-    if (radix <= 256) {
-      // 1 byte per digit: digit = 0..255
-      data.forEach { b ->
-        val digit = b.toInt() and 0xFF
-        require(digit < radix) { "Digit out of range: $digit for radix $radix" }
-      }
-    } else {
-      // Wide radix: 2 bytes per digit, big-endian: digit = 0..65535
-      require(data.size % 2 == 0) {
-        "Data must be an even number of bytes for radix > 256 (wide radix)"
-      }
-
-      var i = 0
-      while (i < data.size) {
-        val hi = data[i].toInt() and 0xFF
-        val lo = data[i + 1].toInt() and 0xFF
-        val digit = (hi shl 8) or lo  // 0..65535
-        require(digit < radix) { "Digit out of range: $digit for radix $radix" }
-        i += 2
-      }
-    }
+    return PreparedFormatPreservingCipher(
+      deriveKey(source, context, secret), deriveTweak(source, context, secret), radix, ff1Cipher
+    )
   }
 
   /**
@@ -242,6 +220,7 @@ class FormatPreservingEncrypterContextual(
     )
   }
 
+  @OptIn(ExperimentalSerializationApi::class)
   @Serializable
   class ContextContainer(
     @ProtoNumber(1)
