@@ -24,28 +24,28 @@ class PreparedFormatPreservingCipher internal constructor(
 }
 
 internal fun validateFormatPreservingData(data: ByteArray, radix: Int) {
-    require(data.isNotEmpty()) { "Empty FPE data" }
-    require(radix in 2..65536) { "Radix must be in range [2, 65536]" }
+  require(data.isNotEmpty()) { "Empty FPE data" }
+  require(radix in 2..65536) { "Radix must be in range [2, 65536]" }
 
-    if (radix <= 256) {
-      // 1 byte per digit: digit = 0..255
-      data.forEach { b ->
-        val digit = b.toInt() and 0xFF
-        require(digit < radix) { "Digit out of range: $digit for radix $radix" }
-      }
-    } else {
-      // Wide radix: 2 bytes per digit, big-endian: digit = 0..65535
-      require(data.size % 2 == 0) {
-        "Data must be an even number of bytes for radix > 256 (wide radix)"
-      }
-
-      var i = 0
-      while (i < data.size) {
-        val hi = data[i].toInt() and 0xFF
-        val lo = data[i + 1].toInt() and 0xFF
-        val digit = (hi shl 8) or lo  // 0..65535
-        require(digit < radix) { "Digit out of range: $digit for radix $radix" }
-        i += 2
-      }
+  if (radix <= 256) {
+    // 1 byte per digit: digit = 0..255
+    data.forEach { b ->
+      val digit = b.toInt() and 0xFF
+      require(digit < radix) { "Digit out of range: $digit for radix $radix" }
     }
+  } else {
+    // Wide radix: 2 bytes per digit, big-endian: digit = 0..65535
+    require(data.size % 2 == 0) {
+      "Data must be an even number of bytes for radix > 256 (wide radix)"
+    }
+
+    var i = 0
+    while (i < data.size) {
+      val hi = data[i].toInt() and 0xFF
+      val lo = data[i + 1].toInt() and 0xFF
+      val digit = (hi shl 8) or lo  // 0..65535
+      require(digit < radix) { "Digit out of range: $digit for radix $radix" }
+      i += 2
+    }
+  }
 }

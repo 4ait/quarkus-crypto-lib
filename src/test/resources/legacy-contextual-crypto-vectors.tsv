@@ -1,3 +1,5 @@
+# Captured before API changes: quarkus-crypto 1.0.1, Quarkus 3.32.3, Kotlin 2.3.10, serialization 1.10.0, Tink 1.20.0.
+# Preserve these vectors; do not regenerate them with the current implementation.
 # kind	masterKeyHex	sourceBase64	contextBase64	secretHex	inputHex	outputHex
 signature	000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f	Y29tcGF0aWJpbGl0eS1zb3VyY2U6djE=				6399e201621e2fe1676076d5d3b7ed0e3d6ee10ea62cf6f7fe7811aea3747947d8
 cipher	000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f	Y29tcGF0aWJpbGl0eS1zb3VyY2U6djE=				65000102030405060708090a0b17b04bb27b822c446a7e2c96913132257fa98b4159c1f0a4435d5c5adea95dd40cde76278186a9025f8ebef912f89cfc
